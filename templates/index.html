@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Marketing Crew</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <h1>Marketing Crew AI</h1>
+    <form id="crewForm">
+        <label for="domain">Domain:</label>
+        <input type="text" id="domain" name="domain" required><br>
+        <label for="description">Project Description:</label>
+        <textarea id="description" name="description" required></textarea><br>
+        <button type="submit">Submit</button>
+    </form>
+    <div id="status"></div>
+    <div id="result"></div>
+
+    <script>
+        $(function() {
+            $('#crewForm').on('submit', function(e) {
+                e.preventDefault();
+                $.post('/submit', $(this).serialize(), function(data) {
+                    $('#status').text('Task submitted. Task ID: ' + data.task_id);
+                    checkStatus(data.task_id);
+                });
+            });
+
+            function checkStatus(task_id) {
+                $.get('/results/' + task_id, function(data) {
+                    if (data.state === 'PENDING' || data.state === 'STARTED') {
+                        $('#status').text(data.status);
+                        setTimeout(function() {
+                            checkStatus(task_id);
+                        }, 2000);
+                    } else {
+                        $('#status').text('Completed');
+                        $('#result').text(data.result);
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
