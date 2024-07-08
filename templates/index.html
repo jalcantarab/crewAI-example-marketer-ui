@@ -3,16 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Marketing Strategy</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <title>Marketing Strategy Generator</title>
     <style>
         :root {
-            --primary-color: #3498db;
+            --primary-color: #4a90e2;
             --secondary-color: #2c3e50;
-            --background-color: #ecf0f1;
-            --text-color: #34495e;
-            --success-color: #2ecc71;
-            --error-color: #e74c3c;
+            --background-color: #f4f7f9;
+            --text-color: #333;
+            --border-color: #ddd;
         }
 
         body {
@@ -30,7 +28,7 @@
             background-color: white;
             padding: 30px;
             border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
 
         h1, h2 {
@@ -38,7 +36,7 @@
         }
 
         form {
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
 
         label {
@@ -51,8 +49,8 @@
         textarea {
             width: 100%;
             padding: 10px;
-            margin-bottom: 20px;
-            border: 1px solid #ddd;
+            margin-bottom: 15px;
+            border: 1px solid var(--border-color);
             border-radius: 4px;
             box-sizing: border-box;
         }
@@ -74,23 +72,26 @@
         }
 
         button:hover {
-            background-color: #2980b9;
+            background-color: #357ae8;
         }
 
-        #status, #output {
-            background-color: #f9f9f9;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 15px;
+        #status {
             margin-top: 20px;
+            padding: 10px;
+            background-color: #e8f0fe;
+            border-radius: 4px;
         }
 
-        .success {
-            color: var(--success-color);
-        }
-
-        .error {
-            color: var(--error-color);
+        #logs {
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            height: 300px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.4;
         }
 
         @media (max-width: 600px) {
@@ -102,73 +103,83 @@
 </head>
 <body>
     <div class="container">
-        <h1>Marketing Strategy</h1>
-        <form id="inputForm">
+        <h1>Marketing Strategy Generator</h1>
+        <form id="submitForm">
             <label for="domain">Domain:</label>
             <input type="text" id="domain" name="domain" required>
             
             <label for="description">Project Description:</label>
             <textarea id="description" name="description" required></textarea>
             
-            <button type="submit">Submit</button>
+            <button type="submit">Generate Strategy</button>
         </form>
-        <h2>Task Status</h2>
         <div id="status"></div>
-        <h2>Task Output</h2>
-        <div id="output"></div>
+        <h2>Logs</h2>
+        <div id="logs"></div>
     </div>
 
     <script>
-        $(document).ready(function() {
-            $('#inputForm').on('submit', function(e) {
-                e.preventDefault();
-                var domain = $('#domain').val();
-                var description = $('#description').val();
-
-                $('#status').text('Submitting...').removeClass('success error');
-                $('#output').empty();
-
-                $.ajax({
-                    url: '/submit',
-                    method: 'POST',
-                    data: { domain: domain, description: description },
-                    success: function(response) {
-                        var taskId = response.task_id;
-                        checkTaskStatus(taskId);
-                    },
-                    error: function() {
-                        $('#status').text('Error submitting task').addClass('error');
-                    }
-                });
+        function submitForm(event) {
+            event.preventDefault();
+            const formData = new FormData(document.getElementById('submitForm'));
+            const statusElement = document.getElementById('status');
+            
+            statusElement.innerText = 'Submitting...';
+            
+            fetch('/submit', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                const taskId = data.task_id;
+                statusElement.innerText = 'Task submitted. Checking status...';
+                checkStatus(taskId);
+            })
+            .catch(error => {
+                statusElement.innerText = 'Error submitting task: ' + error.message;
             });
+        }
 
-            function checkTaskStatus(taskId) {
-                $.ajax({
-                    url: '/results/' + taskId,
-                    method: 'GET',
-                    success: function(response) {
-                        $('#status').text('Task Status: ' + response.state);
-                        if (response.state === 'PENDING' || response.state === 'STARTED') {
-                            if (response.output) {
-                                $('#output').text(response.output);
-                            }
-                            setTimeout(function() {
-                                checkTaskStatus(taskId);
-                            }, 2000);
-                        } else if (response.state === 'SUCCESS') {
-                            $('#status').text('Task Completed').addClass('success');
-                            $('#output').text(response.result);
-                        } else if (response.state === 'FAILURE') {
-                            $('#status').text('Task Failed').addClass('error');
-                            $('#output').text(response.status);
-                        }
-                    },
-                    error: function() {
-                        $('#status').text('Error checking task status').addClass('error');
+        function checkStatus(taskId) {
+            const statusElement = document.getElementById('status');
+            
+            fetch('/results/' + taskId)
+                .then(response => response.json())
+                .then(data => {
+                    statusElement.innerText = 'Status: ' + data.status;
+                    if (data.state === 'PENDING' || data.state === 'STARTED') {
+                        setTimeout(() => checkStatus(taskId), 1000);
+                    } else if (data.state === 'SUCCESS') {
+                        statusElement.innerText = 'Task completed successfully!';
+                    } else if (data.state === 'FAILURE') {
+                        statusElement.innerText = 'Task failed. Please try again.';
                     }
+                })
+                .catch(error => {
+                    statusElement.innerText = 'Error checking status: ' + error.message;
                 });
-            }
-        });
+        }
+
+        function startLogStream() {
+            const logsDiv = document.getElementById('logs');
+            const eventSource = new EventSource('/logs');
+            
+            eventSource.onmessage = function(event) {
+                const logEntry = document.createElement('div');
+                logEntry.textContent = event.data;
+                logsDiv.appendChild(logEntry);
+                logsDiv.scrollTop = logsDiv.scrollHeight;
+            };
+
+            eventSource.onerror = function(error) {
+                console.error('EventSource failed:', error);
+                eventSource.close();
+            };
+        }
+
+        document.getElementById('submitForm').addEventListener('submit', submitForm);
+        window.onload = startLogStream;
     </script>
 </body>
 </html>

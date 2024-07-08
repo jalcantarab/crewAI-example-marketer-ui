@@ -7,7 +7,7 @@ from crewai_tools import SerperDevTool, ScrapeWebsiteTool
 
 # Set up logging
 logging.basicConfig(filename='crew.log', level=logging.INFO,
-                    format='%(asctime)s - %(message)s')
+                    format='%(asctime)s - %(message)s', filemode='w')
 
 
 class MarketStrategy(BaseModel):
