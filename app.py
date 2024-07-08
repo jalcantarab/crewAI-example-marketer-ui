@@ -59,9 +59,12 @@ def results(task_id):
             'status': 'Pending...'
         }
     elif task.state == 'STARTED':
+        with open('crew.log', 'r') as file:
+            output = file.read()
         response = {
             'state': task.state,
-            'status': task.info.get('status', 'Started...')
+            'status': task.info.get('status', 'Started...'),
+            'output': output
         }
     elif task.state == 'SUCCESS':
         response = {
