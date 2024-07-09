@@ -6,8 +6,8 @@ from pydantic import BaseModel, Field
 from crewai_tools import SerperDevTool, ScrapeWebsiteTool
 
 # Set up logging
-logging.basicConfig(filename='crew.log', level=logging.INFO,
-                    format='%(asctime)s - %(message)s', filemode='w')
+logging.basicConfig(filename='crew.log', filemode='w', level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class MarketStrategy(BaseModel):
