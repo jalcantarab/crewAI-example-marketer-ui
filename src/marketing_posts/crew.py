@@ -1,13 +1,22 @@
 import logging
-from typing import List, Callable
+from typing import Callable
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
 from pydantic import BaseModel, Field
-from crewai_tools import SerperDevTool, ScrapeWebsiteTool
 from queue import Queue
-import time
 
-# Custom Logging Handler
+# Progress Tracking Callback
+ProgressCallback = Callable[[str, float], None]
+
+
+class Story(BaseModel):
+    title: str = Field(..., description="Title of the story")
+    description: str = Field(..., description="Brief description of the story")
+
+
+class LinkedInPost(BaseModel):
+    content: str = Field(..., description="Content of the LinkedIn post")
+    hashtags: list[str] = Field(..., description="List of relevant hashtags")
 
 
 class QueueHandler(logging.Handler):
@@ -20,35 +29,8 @@ class QueueHandler(logging.Handler):
         self.log_queue.put(log_entry)
 
 
-# Progress Tracking Callback
-ProgressCallback = Callable[[str, float], None]
-
-
-class MarketStrategy(BaseModel):
-    name: str = Field(..., description="Name of the market strategy")
-    tactics: List[str] = Field(...,
-                               description="List of tactics to be used in the market strategy")
-    channels: List[str] = Field(
-        ..., description="List of channels to be used in the market strategy")
-    KPIs: List[str] = Field(...,
-                            description="List of KPIs to be used in the market strategy")
-
-
-class CampaignIdea(BaseModel):
-    name: str = Field(..., description="Name of the campaign idea")
-    description: str = Field(...,
-                             description="Description of the campaign idea")
-    audience: str = Field(..., description="Audience of the campaign idea")
-    channel: str = Field(..., description="Channel of the campaign idea")
-
-
-class Copy(BaseModel):
-    title: str = Field(..., description="Title of the copy")
-    body: str = Field(..., description="Body of the copy")
-
-
 @CrewBase
-class MarketingPostsCrew():
+class LinkedInPostCrew():
     agents_config = 'config/agents.yaml'
     tasks_config = 'config/tasks.yaml'
     log_queue: Queue = Queue()
@@ -75,90 +57,53 @@ class MarketingPostsCrew():
             self.progress_callback(task_name, progress)
         self.logger.info(f"Task: {task_name} - Progress: {progress:.2f}%")
 
-    @agent
-    def lead_market_analyst(self) -> Agent:
-        return Agent(
-            config=self.agents_config['lead_market_analyst'],
-            tools=[SerperDevTool(), ScrapeWebsiteTool()],
-            verbose=True,
-            memory=False,
-            logger=self.logger
-        )
+    def step_callback(self, agent, task, step):
+        self.logger.info(
+            f"Agent: {agent.role} - Task: {task.description[:50]}... - Step: {step}")
+        # You can add more detailed logging or progress tracking here
 
     @agent
-    def chief_marketing_strategist(self) -> Agent:
+    def story_ideator(self) -> Agent:
         return Agent(
-            config=self.agents_config['chief_marketing_strategist'],
-            tools=[SerperDevTool(), ScrapeWebsiteTool()],
+            config=self.agents_config['story_ideator'],
             verbose=True,
             memory=False,
-            logger=self.logger
+            logger=self.logger,
+            step_callback=self.step_callback
         )
 
     @agent
-    def creative_content_creator(self) -> Agent:
+    def linkedin_post_creator(self) -> Agent:
         return Agent(
-            config=self.agents_config['creative_content_creator'],
+            config=self.agents_config['linkedin_post_creator'],
             verbose=True,
             memory=False,
-            logger=self.logger
+            logger=self.logger,
+            step_callback=self.step_callback
         )
 
     @task
-    def research_task(self) -> Task:
+    def generate_story_ideas_task(self) -> Task:
         return Task(
-            config=self.tasks_config['research_task'],
-            agent=self.lead_market_analyst(),
-            callback=lambda: self.log_progress("Research", 100)
+            config=self.tasks_config['generate_story_ideas_task'],
+            agent=self.story_ideator(),
+            output_json=Story,
+            callback=lambda _: self.log_progress("Generate Story Ideas", 100)
         )
 
     @task
-    def research_task(self) -> Task:
+    def create_linkedin_post_task(self) -> Task:
         return Task(
-            config=self.tasks_config['research_task'],
-            agent=self.lead_market_analyst(),
-            callback=lambda _: self.log_progress("Research", 100)
-        )
-
-    @task
-    def project_understanding_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['project_understanding_task'],
-            agent=self.chief_marketing_strategist(),
-            callback=lambda _: self.log_progress("Project Understanding", 100)
-        )
-
-    @task
-    def marketing_strategy_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['marketing_strategy_task'],
-            agent=self.chief_marketing_strategist(),
-            output_json=MarketStrategy,
-            callback=lambda _: self.log_progress("Marketing Strategy", 100)
-        )
-
-    @task
-    def campaign_idea_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['campaign_idea_task'],
-            agent=self.creative_content_creator(),
-            output_json=CampaignIdea,
-            callback=lambda _: self.log_progress("Campaign Idea", 100)
-        )
-
-    @task
-    def copy_creation_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['copy_creation_task'],
-            agent=self.creative_content_creator(),
-            context=[self.marketing_strategy_task(), self.campaign_idea_task()],
-            output_json=Copy,
-            callback=lambda _: self.log_progress("Copy Creation", 100)
+            config=self.tasks_config['create_linkedin_post_task'],
+            agent=self.linkedin_post_creator(),
+            context=[self.generate_story_ideas_task()],
+            output_json=LinkedInPost,
+            callback=lambda _: self.log_progress("Create LinkedIn Post", 100)
         )
 
     @crew
     def crew(self) -> Crew:
-        self.logger.info('Creating the MarketingPosts crew')
+        self.logger.info('Creating the LinkedIn Post crew')
         return Crew(
             agents=self.agents,
             tasks=self.tasks,
@@ -167,15 +112,14 @@ class MarketingPostsCrew():
             logger=self.logger
         )
 
-    def run(self, domain: str, description: str):
-        self.logger.info(f"Starting MarketingPosts crew for domain: {domain}")
+    def run(self, post_idea: str):
+        self.logger.info(f"Starting LinkedIn Post crew for idea: {post_idea}")
         self.log_progress("Overall", 0)
 
         crew = self.crew()
-        result = crew.kickoff(
-            inputs={"customer_domain": domain, "project_description": description})
+        result = crew.kickoff(inputs={"post_idea": post_idea})
 
-        self.logger.info("MarketingPosts crew completed all tasks")
+        self.logger.info("LinkedIn Post crew completed all tasks")
         self.log_progress("Overall", 100)
 
         return result

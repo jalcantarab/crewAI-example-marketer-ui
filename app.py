@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 from socket_handlers import register_handlers
 from celery_config import celery_app
-from marketing_posts.crew import MarketingPostsCrew
+from marketing_posts.crew import LinkedInPostCrew
 
 # Load environment variables
 load_dotenv()
@@ -22,8 +22,8 @@ register_handlers(socketio)
 
 
 @celery_app.task(bind=True)
-def run_task(self, domain, description):
-    crew = MarketingPostsCrew()
+def run_task(self, post_idea):
+    crew = LinkedInPostCrew()
 
     def progress_callback(task, progress):
         self.update_state(state='PROGRESS',
@@ -36,18 +36,15 @@ def run_task(self, domain, description):
     def log_callback(message):
         socketio.emit('log', {'message': message}, namespace='/')
 
-    # Initial log queue processing
-    while not crew.log_queue.empty():
-        log_callback(crew.log_queue.get())
-
     # Run the crew
-    result = crew.run(domain, description)
+    result = crew.run(post_idea)
 
-    # Final log queue processing
+    # Process all logs
     while not crew.log_queue.empty():
         log_callback(crew.log_queue.get())
 
     return result
+
 
 @app.route('/')
 def index():
@@ -56,9 +53,8 @@ def index():
 
 @app.route('/submit', methods=['POST'])
 def submit():
-    domain = request.form['domain']
-    description = request.form['description']
-    task = run_task.apply_async(args=[domain, description])
+    post_idea = request.form['post_idea']
+    task = run_task.apply_async(args=[post_idea])
     return jsonify({'task_id': task.id}), 202
 
 
