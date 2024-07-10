@@ -61,24 +61,21 @@ poetry run python app.py
 ```
 project/
 ├── app.py                    # Flask application entry point
-├── crew_logic.py             # Core logic separated from main
+├── celery_config.py                    # Flask application entry point
+├── socket_config.py                    # Flask application entry point
 ├── templates/
 │   ├── index.html            # HTML form for user inputs
-│   └── results.html          # HTML to display results
-├── static/
-│   └── style.css             # Optional CSS for styling
 ├── marketing_posts/          # CrewAI related scripts and configurations
-│   ├── main.py
 │   ├── crew.py
 │   └── config/
-│       ├── agents.yaml
-│       └── tasks.yaml
+│       ├── agents.yaml       # The definition of the agents involved
+│       └── tasks.yaml        # The list of possible tasks
 └── README.md
 ```
 
 ### Usage
 
-1. **Navigate to**: [http://127.0.0.1:5000](http://127.0.0.1:5000)
+1. **Navigate to**: [http://127.0.0.1:5001](http://127.0.0.1:5001)
 2. **Fill out the form** with the domain and project description.
 3. **Submit the form**. The task will be processed in the background, and you will see the status updates on the same page.
 4. **View the results** once the task is completed.
