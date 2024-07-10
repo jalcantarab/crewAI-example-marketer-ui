@@ -23,7 +23,7 @@ register_handlers(socketio)
 
 @celery_app.task(bind=True)
 def run_task(self, post_idea):
-    crew = LinkedInPostCrew()
+    crew = LinkedInPostCrew(socketio)
 
     def progress_callback(task, progress):
         self.update_state(state='PROGRESS',

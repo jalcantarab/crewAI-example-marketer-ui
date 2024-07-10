@@ -62,10 +62,11 @@
     });
 
     socket.on('log', (data) => {
-        const logEntry = document.createElement('div');
-        logEntry.textContent = data.message;
-        logsDiv.appendChild(logEntry);
-        logsDiv.scrollTop = logsDiv.scrollHeight;
+        addLogEntry(data.message);
+    });
+
+    socket.on('step_update', (data) => {
+        addLogEntry(data.message);
     });
 
     socket.on('progress', (data) => {
@@ -76,6 +77,13 @@
             updateTaskProgress(data.task, data.progress);
         }
     });
+
+    function addLogEntry(message) {
+        const logEntry = document.createElement('div');
+        logEntry.textContent = message;
+        logsDiv.appendChild(logEntry);
+        logsDiv.scrollTop = logsDiv.scrollHeight;
+    }
 
     function updateOverallProgress(progress) {
         overallProgress.style.width = `${progress}%`;
@@ -90,9 +98,11 @@
             taskBar = createTaskProgressBar(task, taskId);
         }
         const progressBar = taskBar.querySelector('.progress-bar');
-        progressBar.style.width = `${progress}%`;
-        progressBar.textContent = `${task}: ${progress}%`;
-        progressBar.setAttribute('aria-valuenow', progress);
+        if (progressBar) {
+            progressBar.style.width = `${progress}%`;
+            progressBar.textContent = `${task}: ${progress}%`;
+            progressBar.setAttribute('aria-valuenow', progress);
+        }
     }
 
     function createTaskProgressBar(task, taskId) {
@@ -100,7 +110,7 @@
         taskBar.className = 'progress mb-2';
         taskBar.innerHTML = `
             <div id="${taskId}" class="progress-bar" role="progressbar" 
-                 style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
                 ${task}: 0%
             </div>`;
         taskProgress.appendChild(taskBar);

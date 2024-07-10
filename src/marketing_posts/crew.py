@@ -1,23 +1,21 @@
 import logging
-from typing import Callable
+from typing import Callable, Dict, Any
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
 from pydantic import BaseModel, Field
 from queue import Queue
+from flask_socketio import SocketIO
 
 # Progress Tracking Callback
 ProgressCallback = Callable[[str, float], None]
-
 
 class Story(BaseModel):
     title: str = Field(..., description="Title of the story")
     description: str = Field(..., description="Brief description of the story")
 
-
 class LinkedInPost(BaseModel):
     content: str = Field(..., description="Content of the LinkedIn post")
     hashtags: list[str] = Field(..., description="List of relevant hashtags")
-
 
 class QueueHandler(logging.Handler):
     def __init__(self, log_queue):
@@ -28,7 +26,6 @@ class QueueHandler(logging.Handler):
         log_entry = self.format(record)
         self.log_queue.put(log_entry)
 
-
 @CrewBase
 class LinkedInPostCrew():
     agents_config = 'config/agents.yaml'
@@ -36,16 +33,17 @@ class LinkedInPostCrew():
     log_queue: Queue = Queue()
     logger: logging.Logger = None
     progress_callback: ProgressCallback = None
+    socketio: SocketIO = None
 
-    def __init__(self):
+    def __init__(self, socketio):
         self.setup_logging()
+        self.socketio = socketio
 
     def setup_logging(self):
         self.logger = logging.getLogger("CrewAI")
         self.logger.setLevel(logging.INFO)
         queue_handler = QueueHandler(self.log_queue)
-        formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         queue_handler.setFormatter(formatter)
         self.logger.addHandler(queue_handler)
 
@@ -57,10 +55,16 @@ class LinkedInPostCrew():
             self.progress_callback(task_name, progress)
         self.logger.info(f"Task: {task_name} - Progress: {progress:.2f}%")
 
-    def step_callback(self, agent, task, step):
-        self.logger.info(
-            f"Agent: {agent.role} - Task: {task.description[:50]}... - Step: {step}")
-        # You can add more detailed logging or progress tracking here
+    def step_callback(self, step_output: Dict[str, Any]):
+        # Extract relevant information from step_output
+        agent_name = step_output.get('agent', {}).get('name', 'Unknown Agent')
+        task_description = step_output.get('task', {}).get('description', 'Unknown Task')
+        step_details = step_output.get('output', 'No details provided')
+
+        message = f"Agent: {agent_name} - Task: {task_description[:50]}... - Step: {step_details}"
+        self.logger.info(message)
+        if self.socketio:
+            self.socketio.emit('step_update', {'message': message}, namespace='/')
 
     @agent
     def story_ideator(self) -> Agent:

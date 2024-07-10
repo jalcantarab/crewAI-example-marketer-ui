@@ -1,7 +1,7 @@
 # AI Agents Web UI: Project Definition
 
 ## Objective
-To create a web interface that right now allows users to define domain and description of a product to create a marketing strategy, and we're going to change to just take a post idea and initiate a crew of AI agents using the CrewAI framework. The web interface provides real-time feedback on the progress and output of the agents.
+To create a web interface that right now allows users to take a post idea and initiate a crew of AI agents using the CrewAI framework. The web interface provides real-time feedback on the progress and output of the agents.
 
 ## Resources and Versions
 1. **CrewAI Framework** (version 0.35.8): For defining and running agents and tasks.
@@ -68,6 +68,8 @@ To create a web interface that right now allows users to define domain and descr
 5. Start Flask application: `poetry run marketing_posts`
 6. Access the application at `http://localhost:5001`
 
+## Relevant Files
+
 #### 1. Flask Web Application (app.py)
 ```py
 import socket
@@ -77,7 +79,7 @@ import os
 from dotenv import load_dotenv
 from socket_handlers import register_handlers
 from celery_config import celery_app
-from marketing_posts.crew import MarketingPostsCrew
+from marketing_posts.crew import LinkedInPostCrew
 
 # Load environment variables
 load_dotenv()
@@ -94,8 +96,8 @@ register_handlers(socketio)
 
 
 @celery_app.task(bind=True)
-def run_task(self, domain, description):
-    crew = MarketingPostsCrew()
+def run_task(self, post_idea):
+    crew = LinkedInPostCrew(socketio)
 
     def progress_callback(task, progress):
         self.update_state(state='PROGRESS',
@@ -108,18 +110,15 @@ def run_task(self, domain, description):
     def log_callback(message):
         socketio.emit('log', {'message': message}, namespace='/')
 
-    # Initial log queue processing
-    while not crew.log_queue.empty():
-        log_callback(crew.log_queue.get())
-
     # Run the crew
-    result = crew.run(domain, description)
+    result = crew.run(post_idea)
 
-    # Final log queue processing
+    # Process all logs
     while not crew.log_queue.empty():
         log_callback(crew.log_queue.get())
 
     return result
+
 
 @app.route('/')
 def index():
@@ -128,9 +127,8 @@ def index():
 
 @app.route('/submit', methods=['POST'])
 def submit():
-    domain = request.form['domain']
-    description = request.form['description']
-    task = run_task.apply_async(args=[domain, description])
+    post_idea = request.form['post_idea']
+    task = run_task.apply_async(args=[post_idea])
     return jsonify({'task_id': task.id}), 202
 
 
@@ -181,6 +179,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 ```
 
 #### 2. Celery Task Runner (celery_config.py)
@@ -237,15 +236,25 @@ def register_handlers(socketio):
 #### 4. CrewAI Integration (crew.py)
 ```py
 import logging
-from typing import List, Callable
+from typing import Callable
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
 from pydantic import BaseModel, Field
-from crewai_tools import SerperDevTool, ScrapeWebsiteTool
 from queue import Queue
-import time
+from flask_socketio import SocketIO
 
-# Custom Logging Handler
+# Progress Tracking Callback
+ProgressCallback = Callable[[str, float], None]
+
+
+class Story(BaseModel):
+    title: str = Field(..., description="Title of the story")
+    description: str = Field(..., description="Brief description of the story")
+
+
+class LinkedInPost(BaseModel):
+    content: str = Field(..., description="Content of the LinkedIn post")
+    hashtags: list[str] = Field(..., description="List of relevant hashtags")
 
 
 class QueueHandler(logging.Handler):
@@ -258,43 +267,18 @@ class QueueHandler(logging.Handler):
         self.log_queue.put(log_entry)
 
 
-# Progress Tracking Callback
-ProgressCallback = Callable[[str, float], None]
-
-
-class MarketStrategy(BaseModel):
-    name: str = Field(..., description="Name of the market strategy")
-    tactics: List[str] = Field(...,
-                               description="List of tactics to be used in the market strategy")
-    channels: List[str] = Field(
-        ..., description="List of channels to be used in the market strategy")
-    KPIs: List[str] = Field(...,
-                            description="List of KPIs to be used in the market strategy")
-
-
-class CampaignIdea(BaseModel):
-    name: str = Field(..., description="Name of the campaign idea")
-    description: str = Field(...,
-                             description="Description of the campaign idea")
-    audience: str = Field(..., description="Audience of the campaign idea")
-    channel: str = Field(..., description="Channel of the campaign idea")
-
-
-class Copy(BaseModel):
-    title: str = Field(..., description="Title of the copy")
-    body: str = Field(..., description="Body of the copy")
-
-
 @CrewBase
-class MarketingPostsCrew():
+class LinkedInPostCrew():
     agents_config = 'config/agents.yaml'
     tasks_config = 'config/tasks.yaml'
     log_queue: Queue = Queue()
     logger: logging.Logger = None
     progress_callback: ProgressCallback = None
+    socketio: SocketIO = None
 
-    def __init__(self):
+    def __init__(self, socketio):
         self.setup_logging()
+        self.socketio = socketio
 
     def setup_logging(self):
         self.logger = logging.getLogger("CrewAI")
@@ -313,90 +297,59 @@ class MarketingPostsCrew():
             self.progress_callback(task_name, progress)
         self.logger.info(f"Task: {task_name} - Progress: {progress:.2f}%")
 
-    @agent
-    def lead_market_analyst(self) -> Agent:
-        return Agent(
-            config=self.agents_config['lead_market_analyst'],
-            tools=[SerperDevTool(), ScrapeWebsiteTool()],
-            verbose=True,
-            memory=False,
-            logger=self.logger
-        )
+    def step_callback(self, step_output):
+        # Extract relevant information from step_output
+        agent_name = step_output.get('agent_name', 'Unknown Agent')
+        task_description = step_output.get('task_description', 'Unknown Task')
+        step_details = step_output.get('step_details', 'No details provided')
+
+        message = f"Agent: {agent_name} - Task: {task_description[:50]}... - Step: {step_details}"
+        self.logger.info(message)
+        if self.socketio:
+            self.socketio.emit('step_update', {'message': message}, namespace='/')
 
     @agent
-    def chief_marketing_strategist(self) -> Agent:
+    def story_ideator(self) -> Agent:
         return Agent(
-            config=self.agents_config['chief_marketing_strategist'],
-            tools=[SerperDevTool(), ScrapeWebsiteTool()],
+            config=self.agents_config['story_ideator'],
             verbose=True,
             memory=False,
-            logger=self.logger
+            logger=self.logger,
+            step_callback=self.step_callback
         )
 
     @agent
-    def creative_content_creator(self) -> Agent:
+    def linkedin_post_creator(self) -> Agent:
         return Agent(
-            config=self.agents_config['creative_content_creator'],
+            config=self.agents_config['linkedin_post_creator'],
             verbose=True,
             memory=False,
-            logger=self.logger
+            logger=self.logger,
+            step_callback=self.step_callback
         )
 
     @task
-    def research_task(self) -> Task:
+    def generate_story_ideas_task(self) -> Task:
         return Task(
-            config=self.tasks_config['research_task'],
-            agent=self.lead_market_analyst(),
-            callback=lambda: self.log_progress("Research", 100)
+            config=self.tasks_config['generate_story_ideas_task'],
+            agent=self.story_ideator(),
+            output_json=Story,
+            callback=lambda _: self.log_progress("Generate Story Ideas", 100)
         )
 
     @task
-    def research_task(self) -> Task:
+    def create_linkedin_post_task(self) -> Task:
         return Task(
-            config=self.tasks_config['research_task'],
-            agent=self.lead_market_analyst(),
-            callback=lambda _: self.log_progress("Research", 100)
-        )
-
-    @task
-    def project_understanding_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['project_understanding_task'],
-            agent=self.chief_marketing_strategist(),
-            callback=lambda _: self.log_progress("Project Understanding", 100)
-        )
-
-    @task
-    def marketing_strategy_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['marketing_strategy_task'],
-            agent=self.chief_marketing_strategist(),
-            output_json=MarketStrategy,
-            callback=lambda _: self.log_progress("Marketing Strategy", 100)
-        )
-
-    @task
-    def campaign_idea_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['campaign_idea_task'],
-            agent=self.creative_content_creator(),
-            output_json=CampaignIdea,
-            callback=lambda _: self.log_progress("Campaign Idea", 100)
-        )
-
-    @task
-    def copy_creation_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['copy_creation_task'],
-            agent=self.creative_content_creator(),
-            context=[self.marketing_strategy_task(), self.campaign_idea_task()],
-            output_json=Copy,
-            callback=lambda _: self.log_progress("Copy Creation", 100)
+            config=self.tasks_config['create_linkedin_post_task'],
+            agent=self.linkedin_post_creator(),
+            context=[self.generate_story_ideas_task()],
+            output_json=LinkedInPost,
+            callback=lambda _: self.log_progress("Create LinkedIn Post", 100)
         )
 
     @crew
     def crew(self) -> Crew:
-        self.logger.info('Creating the MarketingPosts crew')
+        self.logger.info('Creating the LinkedIn Post crew')
         return Crew(
             agents=self.agents,
             tasks=self.tasks,
@@ -405,15 +358,14 @@ class MarketingPostsCrew():
             logger=self.logger
         )
 
-    def run(self, domain: str, description: str):
-        self.logger.info(f"Starting MarketingPosts crew for domain: {domain}")
+    def run(self, post_idea: str):
+        self.logger.info(f"Starting LinkedIn Post crew for idea: {post_idea}")
         self.log_progress("Overall", 0)
 
         crew = self.crew()
-        result = crew.kickoff(
-            inputs={"customer_domain": domain, "project_description": description})
+        result = crew.kickoff(inputs={"post_idea": post_idea})
 
-        self.logger.info("MarketingPosts crew completed all tasks")
+        self.logger.info("LinkedIn Post crew completed all tasks")
         self.log_progress("Overall", 100)
 
         return result
@@ -427,7 +379,7 @@ class MarketingPostsCrew():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Marketing Strategy Generator</title>
+    <title>LinkedIn Post Generator</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
@@ -438,17 +390,13 @@ class MarketingPostsCrew():
 </head>
 <body>
     <div class="container py-5">
-        <h1 class="mb-4">Marketing Strategy Generator</h1>
+        <h1 class="mb-4">LinkedIn Post Generator</h1>
         <form id="submitForm">
             <div class="mb-3">
-                <label for="domain" class="form-label">Domain:</label>
-                <input type="text" class="form-control" id="domain" name="domain" required>
+                <label for="post_idea" class="form-label">Post Idea:</label>
+                <textarea class="form-control" id="post_idea" name="post_idea" rows="4" required></textarea>
             </div>
-            <div class="mb-3">
-                <label for="description" class="form-label">Project Description:</label>
-                <textarea class="form-control" id="description" name="description" rows="4" required></textarea>
-            </div>
-            <button type="submit" class="btn btn-primary">Generate Strategy</button>
+            <button type="submit" class="btn btn-primary">Generate LinkedIn Post</button>
         </form>
         <div id="status" class="alert mt-3 d-none"></div>
         <div id="progress-container" class="mt-4 d-none">
@@ -460,6 +408,11 @@ class MarketingPostsCrew():
         </div>
         <h2 class="mt-4">Logs</h2>
         <div id="logs" class="border p-3 bg-light"></div>
+        <div id="result-container" class="mt-4 d-none">
+            <h2>Generated LinkedIn Post</h2>
+            <div id="post-content" class="border p-3 bg-white"></div>
+            <div id="post-hashtags" class="mt-2"></div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -470,6 +423,9 @@ class MarketingPostsCrew():
     const progressContainer = document.getElementById('progress-container');
     const overallProgress = document.getElementById('overall-progress').querySelector('.progress-bar');
     const taskProgress = document.getElementById('task-progress');
+    const resultContainer = document.getElementById('result-container');
+    const postContent = document.getElementById('post-content');
+    const postHashtags = document.getElementById('post-hashtags');
 
     socket.on('connect', () => {
         console.log('Connected to server');
@@ -482,10 +438,11 @@ class MarketingPostsCrew():
     });
 
     socket.on('log', (data) => {
-        const logEntry = document.createElement('div');
-        logEntry.textContent = data.message;
-        logsDiv.appendChild(logEntry);
-        logsDiv.scrollTop = logsDiv.scrollHeight;
+        addLogEntry(data.message);
+    });
+
+    socket.on('step_update', (data) => {
+        addLogEntry(data.message);
     });
 
     socket.on('progress', (data) => {
@@ -496,6 +453,13 @@ class MarketingPostsCrew():
             updateTaskProgress(data.task, data.progress);
         }
     });
+
+    function addLogEntry(message) {
+        const logEntry = document.createElement('div');
+        logEntry.textContent = message;
+        logsDiv.appendChild(logEntry);
+        logsDiv.scrollTop = logsDiv.scrollHeight;
+    }
 
     function updateOverallProgress(progress) {
         overallProgress.style.width = `${progress}%`;
@@ -510,9 +474,11 @@ class MarketingPostsCrew():
             taskBar = createTaskProgressBar(task, taskId);
         }
         const progressBar = taskBar.querySelector('.progress-bar');
-        progressBar.style.width = `${progress}%`;
-        progressBar.textContent = `${task}: ${progress}%`;
-        progressBar.setAttribute('aria-valuenow', progress);
+        if (progressBar) {
+            progressBar.style.width = `${progress}%`;
+            progressBar.textContent = `${task}: ${progress}%`;
+            progressBar.setAttribute('aria-valuenow', progress);
+        }
     }
 
     function createTaskProgressBar(task, taskId) {
@@ -520,7 +486,7 @@ class MarketingPostsCrew():
         taskBar.className = 'progress mb-2';
         taskBar.innerHTML = `
             <div id="${taskId}" class="progress-bar" role="progressbar" 
-                 style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
                 ${task}: 0%
             </div>`;
         taskProgress.appendChild(taskBar);
@@ -553,7 +519,6 @@ class MarketingPostsCrew():
                 } else if (data.state === 'FAILURE') {
                     updateStatus('Task failed. Please try again.', 'danger');
                 } else if (data.state === 'PROGRESS') {
-                    // Update progress based on the response
                     updateTaskProgress(data.task, data.progress);
                     setTimeout(() => checkStatus(taskId), 1000);
                 } else {
@@ -573,22 +538,17 @@ class MarketingPostsCrew():
         progressContainer.classList.add('d-none');
         updateOverallProgress(0);
         taskProgress.innerHTML = '';
+        resultContainer.classList.add('d-none');
     }
 
     function displayResults(result) {
-        // Implement this function to display the structured results
-        console.log('Results:', result);
-        // For example:
-        const resultDiv = document.createElement('div');
-        resultDiv.innerHTML = `
-            <h3>Results</h3>
-            <pre>${JSON.stringify(result, null, 2)}</pre>
-        `;
-        document.body.appendChild(resultDiv);
+        resultContainer.classList.remove('d-none');
+        postContent.textContent = result.content;
+        postHashtags.textContent = result.hashtags.join(' ');
     }
 
     document.getElementById('submitForm').addEventListener('submit', submitForm);
-</script>
+    </script>
 </body>
 </html>
 ```
@@ -596,97 +556,92 @@ class MarketingPostsCrew():
 
 #### 6. Agent & Task Definition (src/marketing_posts/config/agents.yaml & src/marketing_posts/config/tasks.yaml)
 ```yaml
-lead_market_analyst:
+story_ideator:
   role: >
-    Lead Market Analyst
+    Story Ideator
   goal: >
-    Conduct amazing analysis of the products and competitors, providing in-depth
-    insights to guide marketing strategies.
+    Generate creative and engaging story ideas based on the given post idea.
   backstory: >
-    As the Lead Market Analyst at a premier digital marketing firm, you specialize
-    in dissecting online business landscapes.
+    You are a creative writer with a knack for transforming simple ideas into 
+    captivating narratives. Your role is to take a post idea and generate 
+    potential story angles that would resonate with a LinkedIn audience.
 
-chief_marketing_strategist:
+linkedin_post_creator:
   role: >
-    Chief Marketing Strategist
+    LinkedIn Post Creator
   goal: >
-    Synthesize amazing insights from product analysis to formulate incredible
-    marketing strategies.
+    Craft compelling LinkedIn posts based on the story ideas provided.
   backstory: >
-    You are the Chief Marketing Strategist at a leading digital marketing agency,
-    known for crafting bespoke strategies that drive success.
-
-creative_content_creator:
-  role: >
-    Creative Content Creator
-  goal: >
-    Develop compelling and innovative content for social media campaigns, with a
-    focus on creating high-impact ad copies.
-  backstory: >
-    As a Creative Content Creator at a top-tier digital marketing agency, you
-    excel in crafting narratives that resonate with audiences. Your expertise
-    lies in turning marketing strategies into engaging stories and visual
-    content that capture attention and inspire action.
-
-chief_creative_director:
-  role: >
-    Chief Creative Director
-  goal: >
-    Oversee the work done by your team to make sure it is the best possible and
-    aligned with the product goals, review, approve, ask clarifying questions or
-    delegate follow-up work if necessary.
-  backstory: >
-    You are the Chief Content Officer at a leading digital marketing agency
-    specializing in product branding. You ensure your team crafts the best
-    possible content for the customer.
-
+    As a social media expert specializing in LinkedIn content, you excel at 
+    creating posts that engage professionals and drive meaningful conversations. 
+    Your posts are known for their blend of insightful content and strategic use 
+    of LinkedIn's features.
 ```
 
 ```yaml
-research_task:
+generate_story_ideas_task:
   description: >
-    Conduct a thorough research about the customer and competitors in the context
-    of {customer_domain}.
-    Make sure you find any interesting and relevant information given the
-    current year is 2024.
-    We are working with them on the following project: {project_description}.
+    Based on the given post idea: {post_idea}, generate 3 potential story angles 
+    that could be used to create an engaging LinkedIn post. Consider the 
+    professional nature of LinkedIn and aim for stories that would resonate with 
+    a business-oriented audience.
   expected_output: >
-    A complete report on the customer and their customers and competitors,
-    including their demographics, preferences, market positioning and audience engagement.
+    A list of 3 story ideas, each with a title and brief description.
 
-project_understanding_task:
+create_linkedin_post_task:
   description: >
-    Understand the project details and the target audience for
-    {project_description}.
-    Review any provided materials and gather additional information as needed.
+    Using the story ideas generated from the previous task, create a compelling 
+    LinkedIn post. The post should be engaging, professional, and tailored to 
+    the LinkedIn audience. Include relevant hashtags that will increase the 
+    post's visibility.
   expected_output: >
-    A detailed summary of the project and a profile of the target audience.
-
-marketing_strategy_task:
-  description: >
-    Formulate a comprehensive marketing strategy for the project
-    {project_description} of the customer {customer_domain}.
-    Use the insights from the research task and the project understanding
-    task to create a high-quality strategy.
-  expected_output: >
-    A detailed marketing strategy document that outlines the goals, target
-    audience, key messages, and proposed tactics, make sure to have name, tatics, channels and KPIs
-
-campaign_idea_task:
-  description: >
-    Develop creative marketing campaign ideas for {project_description}.
-    Ensure the ideas are innovative, engaging, and aligned with the overall marketing strategy.
-  expected_output: >
-    A list of 5 campaign ideas, each with a brief description and expected impact.
-
-copy_creation_task:
-  description: >
-    Create marketing copies based on the approved campaign ideas for {project_description}.
-    Ensure the copies are compelling, clear, and tailored to the target audience.
-  expected_output: >
-    Marketing copies for each campaign idea.
+    A complete LinkedIn post including the main content and a list of relevant 
+    hashtags.
 
 ```
 
 ## Next Steps
-1. Implement A simpler Crew of Agents and tasks, that take a large text field post idea description, and use a crew with two agents, one to think of possible stories to tell around that idea with the information available, and another one to take the possible stories and create a complete LinkedIn post for that idea.
+1. Review if the architecture is the right approach for the project objective. We get currently two separate errors: 
+A) The UI shows an error "Error checking status: Cannot read properties of null (reading 'style')"
+B) The Celery worker console shows the error: 
+```
+[2024-07-10 22:06:31,721: ERROR/ForkPoolWorker-8] Task app.run_task[b2dd3068-68a1-4be1-92a8-b50df8b75e19] raised unexpected: AttributeError("'list' object has no attribute 'get'")
+Traceback (most recent call last):
+  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/celery/app/trace.py", line 453, in trace_task
+    R = retval = fun(*args, **kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/celery/app/trace.py", line 736, in __protected_call__
+    return self.run(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jorgealcantara/Sites/private/github/forks/crewAI-example-marketer-ui/app.py", line 40, in run_task
+    result = crew.run(post_idea)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/jorgealcantara/Sites/private/github/forks/crewAI-example-marketer-ui/src/marketing_posts/crew.py", line 129, in run
+    result = crew.kickoff(inputs={"post_idea": post_idea})
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/crew.py", line 314, in kickoff
+    result = self._run_sequential_process()
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/crew.py", line 396, in _run_sequential_process
+    output = task.execute(context=task_output)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/task.py", line 211, in execute
+    result = self._execute(
+             ^^^^^^^^^^^^^^
+  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/task.py", line 220, in _execute
+    result = agent.execute_task(
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/agent.py", line 162, in execute_task
+    result = self.agent_executor.invoke(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/langchain/chains/base.py", line 163, in invoke
+    raise e
+  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/langchain/chains/base.py", line 153, in invoke
+    self._call(inputs, run_manager=run_manager)
+  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/agents/executor.py", line 80, in _call
+    self.step_callback(next_step_output)
+  File "/Users/jorgealcantara/Sites/private/github/forks/crewAI-example-marketer-ui/src/marketing_posts/crew.py", line 65, in step_callback
+    agent_name = step_output.get('agent_name', 'Unknown Agent')
+                 ^^^^^^^^^^^^^^^
+AttributeError: 'list' object has no attribute 'get'
+```
