@@ -168,7 +168,8 @@
     function displayResults(result) {
         resultContainer.classList.remove('d-none');
         resultJSON = JSON.parse(result);
-        postContent.textContent = resultJSON.content;
+        postContent.textContent = resultJSON.content.replace(/\\n/g, '<br>');
+        postContent.textContent = resultJSON.content.replace(/\n/g, '<br>');
         postHashtags.textContent = resultJSON.hashtags.join(' ');
     }
 
