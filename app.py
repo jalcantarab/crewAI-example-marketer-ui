@@ -1,3 +1,4 @@
+import socket
 from flask import Flask, request, render_template, jsonify
 from flask_socketio import SocketIO
 import os
@@ -47,7 +48,6 @@ def run_task(self, domain, description):
         log_callback(crew.log_queue.get())
 
     return result
-
 
 @app.route('/')
 def index():

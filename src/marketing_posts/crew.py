@@ -113,11 +113,19 @@ class MarketingPostsCrew():
         )
 
     @task
+    def research_task(self) -> Task:
+        return Task(
+            config=self.tasks_config['research_task'],
+            agent=self.lead_market_analyst(),
+            callback=lambda _: self.log_progress("Research", 100)
+        )
+
+    @task
     def project_understanding_task(self) -> Task:
         return Task(
             config=self.tasks_config['project_understanding_task'],
             agent=self.chief_marketing_strategist(),
-            callback=lambda: self.log_progress("Project Understanding", 100)
+            callback=lambda _: self.log_progress("Project Understanding", 100)
         )
 
     @task
@@ -126,7 +134,7 @@ class MarketingPostsCrew():
             config=self.tasks_config['marketing_strategy_task'],
             agent=self.chief_marketing_strategist(),
             output_json=MarketStrategy,
-            callback=lambda: self.log_progress("Marketing Strategy", 100)
+            callback=lambda _: self.log_progress("Marketing Strategy", 100)
         )
 
     @task
@@ -135,7 +143,7 @@ class MarketingPostsCrew():
             config=self.tasks_config['campaign_idea_task'],
             agent=self.creative_content_creator(),
             output_json=CampaignIdea,
-            callback=lambda: self.log_progress("Campaign Idea", 100)
+            callback=lambda _: self.log_progress("Campaign Idea", 100)
         )
 
     @task
@@ -145,7 +153,7 @@ class MarketingPostsCrew():
             agent=self.creative_content_creator(),
             context=[self.marketing_strategy_task(), self.campaign_idea_task()],
             output_json=Copy,
-            callback=lambda: self.log_progress("Copy Creation", 100)
+            callback=lambda _: self.log_progress("Copy Creation", 100)
         )
 
     @crew
