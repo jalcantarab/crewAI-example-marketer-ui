@@ -601,47 +601,8 @@ create_linkedin_post_task:
 ```
 
 ## Next Steps
-1. Review if the architecture is the right approach for the project objective. We get currently two separate errors: 
-A) The UI shows an error "Error checking status: Cannot read properties of null (reading 'style')"
-B) The Celery worker console shows the error: 
-```
-[2024-07-10 22:06:31,721: ERROR/ForkPoolWorker-8] Task app.run_task[b2dd3068-68a1-4be1-92a8-b50df8b75e19] raised unexpected: AttributeError("'list' object has no attribute 'get'")
-Traceback (most recent call last):
-  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/celery/app/trace.py", line 453, in trace_task
-    R = retval = fun(*args, **kwargs)
-                 ^^^^^^^^^^^^^^^^^^^^
-  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/celery/app/trace.py", line 736, in __protected_call__
-    return self.run(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/jorgealcantara/Sites/private/github/forks/crewAI-example-marketer-ui/app.py", line 40, in run_task
-    result = crew.run(post_idea)
-             ^^^^^^^^^^^^^^^^^^^
-  File "/Users/jorgealcantara/Sites/private/github/forks/crewAI-example-marketer-ui/src/marketing_posts/crew.py", line 129, in run
-    result = crew.kickoff(inputs={"post_idea": post_idea})
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/crew.py", line 314, in kickoff
-    result = self._run_sequential_process()
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/crew.py", line 396, in _run_sequential_process
-    output = task.execute(context=task_output)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/task.py", line 211, in execute
-    result = self._execute(
-             ^^^^^^^^^^^^^^
-  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/task.py", line 220, in _execute
-    result = agent.execute_task(
-             ^^^^^^^^^^^^^^^^^^^
-  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/agent.py", line 162, in execute_task
-    result = self.agent_executor.invoke(
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/langchain/chains/base.py", line 163, in invoke
-    raise e
-  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/langchain/chains/base.py", line 153, in invoke
-    self._call(inputs, run_manager=run_manager)
-  File "/Users/jorgealcantara/Library/Caches/pypoetry/virtualenvs/marketing-posts-pl8K9VaL-py3.11/lib/python3.11/site-packages/crewai/agents/executor.py", line 80, in _call
-    self.step_callback(next_step_output)
-  File "/Users/jorgealcantara/Sites/private/github/forks/crewAI-example-marketer-ui/src/marketing_posts/crew.py", line 65, in step_callback
-    agent_name = step_output.get('agent_name', 'Unknown Agent')
-                 ^^^^^^^^^^^^^^^
-AttributeError: 'list' object has no attribute 'get'
-```
+1. When the progress is 100, we want the UI to show that the task (with name in the field 'task') has been completed, so the existing alert turns a new color, takes the name of the task, and a new alert appears below with the next task name and the status.
+For this, we will not only need to update the front end, but also the back-end to provide the new task id to check against (We assume that new task, new result ID)
+Finally, when progress is 100, we should set the state to SUCCESS unless it's a FAILURE
+
+This should continue until all tasks are completed in which case, all alerts should be a success, each with the name of their task.

@@ -167,8 +167,9 @@
 
     function displayResults(result) {
         resultContainer.classList.remove('d-none');
-        postContent.textContent = result.content;
-        postHashtags.textContent = result.hashtags.join(' ');
+        resultJSON = JSON.parse(result);
+        postContent.textContent = resultJSON.content;
+        postHashtags.textContent = resultJSON.hashtags.join(' ');
     }
 
     document.getElementById('submitForm').addEventListener('submit', submitForm);
