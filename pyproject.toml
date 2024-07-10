@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "marketing_posts"
 version = "0.1.0"
-description = "marketing-posts using crewAI"
+description = "marketing-posts using crewAI with real-time updates"
 authors = ["Your Name <you@example.com>"]
 
 [tool.poetry.dependencies]
@@ -11,10 +11,12 @@ crewai-tools = "^0.4.6"
 flask = "^3.0.3"
 celery = "^5.4.0"
 redis = "^5.0.7"
+flask-socketio = "^5.3.6"
+eventlet = "^0.35.1"
+python-dotenv = "^1.0.0"
 
 [tool.poetry.scripts]
-marketing_posts = "marketing_posts.main:run"
-train = "marketing_posts.main:train"
+marketing_posts = "app:main"
 
 [build-system]
 requires = ["poetry-core"]
